@@ -1,0 +1,21 @@
+{
+  "name": "ap-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "check": "biome check .",
+    "fix": "biome check --write ."
+  },
+  "keywords": [],
+  "type": "module",
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}

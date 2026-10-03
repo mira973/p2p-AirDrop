@@ -1,0 +1,106 @@
+# Dependencies
+node_modules/
+jspm_packages/
+bower_components/
+
+# Build output / generated artifacts
+dist/
+build/
+out/
+.output/
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Caches
+.cache/
+.parcel-cache/
+.turbo/
+.vite/
+.eslintcache
+.biome/
+*.cache
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local environment files and secrets
+.env
+.env.*
+!.env.example
+*.env
+*.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.cer
+*.ppk
+credentials.json
+secrets.json
+*.secret
+
+# Local databases and dumps
+*.sqlite
+*.sqlite3
+*.db
+*.sql
+*.dump
+
+# Archives and large binaries
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+*.iso
+*.dmg
+
+# OS junk
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Editor / IDE junk
+.idea/
+*.iml
+*.swp
+*.swo
+*.swn
+*~
+.history/
+
+# Runtime / temp
+tmp/
+temp/
+*.tmp
+*.temp
+.npm/
+.node_repl_history
+npm-debug.log
+
+# Deployment / tooling local state
+.vercel
+.netlify
+*.local
