@@ -1,5 +1,12 @@
 import { state } from "./state.js";
-import { createAnswer, createOffer, createPeerConnection, setRemoteAnswer } from "./webrtc.js";
+import {
+  addIceCandidate,
+  createAnswer,
+  createDataChannel,
+  createOffer,
+  createPeerConnection,
+  setRemoteAnswer,
+} from "./webrtc.js";
 import { connectWebSocket, send } from "./websocket.js";
 
 const btn = document.getElementById("CreateSession");
@@ -23,6 +30,7 @@ connectWebSocket({
       createPeerConnection();
 
       if (data.role === "host") {
+        createDataChannel();
         createOffer();
       }
 
@@ -51,6 +59,10 @@ connectWebSocket({
 
     if (data.type === "session-closed") {
       console.log("Host отключился. Сессия закрыта");
+    }
+
+    if (data.type === "ice-candidate") {
+      await addIceCandidate(data.candidate);
     }
   },
 });

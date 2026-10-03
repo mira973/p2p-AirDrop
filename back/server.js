@@ -130,6 +130,27 @@ wss.on("connection", (ws) => {
       );
     }
 
+    if (data.type === "ice-candidate") {
+      const session = findSessionBySocket(ws);
+
+      if (!session) {
+        return;
+      }
+
+      if (ws === session.host) {
+        const target = session.peer;
+        target.send(JSON.stringify({ type: "ice-candidate", candidate: data.candidate }));
+      }
+
+      if (ws === session.peer) {
+        const target = session.host;
+        target.send(JSON.stringify({ type: "ice-candidate", candidate: data.candidate }));
+      }
+      // 1. если ws === session.host
+      // 2. если ws === session.peer
+      // 3. target.send(...)
+    }
+
     if (data.type === "answer") {
       const session = findSessionBySocket(ws);
 

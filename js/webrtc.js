@@ -1,8 +1,39 @@
 import { state } from "./state.js";
 import { send } from "./websocket.js";
 
+export async function addIceCandidate(candidate) {
+  await state.peerConnection.addIceCandidate(candidate);
+}
+
 export function createPeerConnection() {
   state.peerConnection = new RTCPeerConnection();
+
+  state.peerConnection.onicecandidate = (event) => {
+    if (event.candidate) {
+      send(
+        JSON.stringify({
+          type: "ice-candidate",
+          candidate: event.candidate,
+        }),
+      );
+    } else {
+      console.log("ICE gathering finished");
+    }
+  };
+
+  state.peerConnection.onconnectionstatechange = () => {
+    console.log("Connection state:", state.peerConnection.connectionState);
+  };
+
+  state.peerConnection.ondatachannel = (event) => {
+    state.dataChannel = event.channel;
+
+    console.log("Получен DataChannel:", state.dataChannel.label);
+  };
+}
+
+export function createDataChannel() {
+  state.dataChannel = state.peerConnection.createDataChannel("file");
 }
 
 export async function createOffer() {
