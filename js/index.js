@@ -5,6 +5,7 @@ import {
   createDataChannel,
   createOffer,
   createPeerConnection,
+  sendData,
   setRemoteAnswer,
 } from "./webrtc.js";
 import { connectWebSocket, send } from "./websocket.js";
@@ -15,6 +16,9 @@ const fileInput = document.getElementById("file-input");
 const infoDisplay = document.getElementById("info-display");
 const joinBtn = document.getElementById("JoinSession");
 const inputCode = document.getElementById("inputCode");
+const sendFile = document.getElementById("SendFile");
+
+const saveFile = [];
 
 connectWebSocket({
   onMessage: async (data) => {
@@ -78,12 +82,23 @@ function getInfo() {
     `Тип: ${file.type}`;
 }
 
-fileInput.addEventListener("change", getInfo);
+fileInput.addEventListener("change", () => {
+  console.log("Выбран файл:", fileInput.files[0]);
+  const file = fileInput.files[0];
+  saveFile.push(file);
+  console.log("Размер файла в байтах:", file.size);
+  getInfo();
+});
+
+sendFile.addEventListener("click", async () => {
+  for (const file of saveFile) {
+    const buffer = await file.arrayBuffer();
+    sendData(buffer);
+  }
+});
 
 btn.addEventListener("click", () => {
-  const obj = JSON.stringify({
-    type: "create-session",
-  });
+  const obj = JSON.stringify({ type: "create-session" });
 
   send(obj);
 });

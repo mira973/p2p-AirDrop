@@ -28,7 +28,7 @@ export function createPeerConnection() {
   state.peerConnection.ondatachannel = (event) => {
     state.dataChannel = event.channel;
     state.dataChannel.onmessage = (event) => {
-      console.log("Получено сообщение:", event.data);
+      console.log("размер  байтах", event.data.byteLength);
     };
 
     console.log("Получен DataChannel:", state.dataChannel.label);
@@ -38,10 +38,10 @@ export function createPeerConnection() {
 export function createDataChannel() {
   state.dataChannel = state.peerConnection.createDataChannel("file");
 
-  state.dataChannel.onopen= ()=>{
+  state.dataChannel.onopen = () => {
     console.log("Канал успешно открыт! Теперь можно отправлять данные.");
-  state.dataChannel.send("hello from host"); 
-  }
+    state.dataChannel.send("hello from host");
+  };
 }
 
 export async function createOffer() {
@@ -66,4 +66,10 @@ export async function createAnswer(offer) {
 
 export async function setRemoteAnswer(answer) {
   await state.peerConnection.setRemoteDescription(answer);
+}
+
+export function sendData(buffer) {
+  if (state.dataChannel.readyState === "open") {
+    state.dataChannel.send(buffer);
+  }
 }
