@@ -6,6 +6,7 @@ import {
   createOffer,
   createPeerConnection,
   sendData,
+  sendFileMeta,
   setRemoteAnswer,
 } from "./webrtc.js";
 import { connectWebSocket, send } from "./websocket.js";
@@ -17,8 +18,33 @@ const infoDisplay = document.getElementById("info-display");
 const joinBtn = document.getElementById("JoinSession");
 const inputCode = document.getElementById("inputCode");
 const sendFile = document.getElementById("SendFile");
+const downloadFile = document.getElementById("DownloadFile");
 
 const saveFile = [];
+let receivedFile = null;
+
+function showDownloadButton(blob, fileMeta) {
+  receivedFile = { blob, fileMeta };
+
+  downloadFile.hidden = false;
+  downloadFile.textContent = `Скачать ${fileMeta.name}`;
+}
+
+downloadFile.addEventListener("click", () => {
+  if (!receivedFile) return;
+
+  const objectURL = URL.createObjectURL(receivedFile.blob);
+  const link = document.createElement("a");
+
+  link.href = objectURL;
+  link.download = receivedFile.fileMeta.name;
+
+  document.body.append(link);
+  link.click();
+  link.remove();
+
+  URL.revokeObjectURL(objectURL);
+});
 
 connectWebSocket({
   onMessage: async (data) => {
@@ -31,7 +57,12 @@ connectWebSocket({
     if (data.type === "peer-joined") {
       state.role = data.role;
 
-      createPeerConnection();
+      createPeerConnection((blob, fileMeta) => {
+        console.log("Получен Blob:", blob);
+        console.log("Метаданные файла:", fileMeta);
+
+        showDownloadButton(blob, fileMeta);
+      });
 
       if (data.role === "host") {
         createDataChannel();
@@ -92,6 +123,7 @@ fileInput.addEventListener("change", () => {
 
 sendFile.addEventListener("click", async () => {
   for (const file of saveFile) {
+    sendFileMeta(file);
     const buffer = await file.arrayBuffer();
     sendData(buffer);
   }

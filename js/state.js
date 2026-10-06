@@ -3,4 +3,5 @@ export const state = {
   role: null,
   session: null,
   dataChannel: null,
+  onFileReceived: null,
 };
