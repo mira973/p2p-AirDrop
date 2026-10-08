@@ -4,4 +4,5 @@ export const state = {
   session: null,
   dataChannel: null,
   onFileReceived: null,
+  onProgress: null,
 };

@@ -19,15 +19,66 @@ const joinBtn = document.getElementById("JoinSession");
 const inputCode = document.getElementById("inputCode");
 const sendFile = document.getElementById("SendFile");
 const downloadFile = document.getElementById("DownloadFile");
+const progressBar = document.getElementById("progress");
+const progressText = document.getElementById("progress-text");
+const qrCode = document.getElementById("qr-code");
+
+const urlCode = new URLSearchParams(window.location.search).get("code");
+
+if (urlCode) {
+  inputCode.value = urlCode;
+  console.log("Код из ссылки:", urlCode);
+}
 
 const saveFile = [];
 let receivedFile = null;
+
+const CHUNK_SIZE = 64 * 1024; // 64 КБ
+
+// Не даём переполниться очереди data channel на быстрых файлах.
+async function waitForBufferDrain() {
+  const channel = state.dataChannel;
+
+  while (channel?.readyState === "open" && channel.bufferedAmount > CHUNK_SIZE * 8) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+async function sendFileInChunks(file) {
+  sendFileMeta(file);
+
+  if (file.size === 0) {
+    sendData(new ArrayBuffer(0));
+    return;
+  }
+
+  for (let start = 0; start < file.size; start += CHUNK_SIZE) {
+    const end = Math.min(start + CHUNK_SIZE, file.size);
+    const chunk = file.slice(start, end);
+    const buffer = await chunk.arrayBuffer();
+
+    sendData(buffer);
+
+    await waitForBufferDrain();
+  }
+}
 
 function showDownloadButton(blob, fileMeta) {
   receivedFile = { blob, fileMeta };
 
   downloadFile.hidden = false;
   downloadFile.textContent = `Скачать ${fileMeta.name}`;
+}
+
+function updateProgress(percent) {
+  const value = Math.round(percent);
+
+  progressBar.value = value;
+  progressText.textContent = `${value}%`;
+}
+
+function resetProgress() {
+  updateProgress(0);
 }
 
 downloadFile.addEventListener("click", () => {
@@ -44,6 +95,8 @@ downloadFile.addEventListener("click", () => {
   link.remove();
 
   URL.revokeObjectURL(objectURL);
+
+  resetProgress();
 });
 
 connectWebSocket({
@@ -51,7 +104,22 @@ connectWebSocket({
     if (data.type === "session-created") {
       console.log("Сессия создана:", data.code);
       display.textContent = data.code;
-      state.session = { code: data.code };
+
+      const joinUrl = new URL(window.location.origin);
+
+      joinUrl.searchParams.set("code", data.code);
+
+      state.session = { code: data.code, link: joinUrl.toString() };
+
+      console.log("Ссылка для подключения:", state.session.link);
+      window.QRCode.toCanvas(qrCode, joinUrl.toString(), (error) => {
+        if (error) {
+          console.error("Ошибка создания QR:", error);
+          return;
+        }
+
+        console.log("QR создан");
+      });
     }
 
     if (data.type === "peer-joined") {
@@ -62,7 +130,7 @@ connectWebSocket({
         console.log("Метаданные файла:", fileMeta);
 
         showDownloadButton(blob, fileMeta);
-      });
+      }, updateProgress);
 
       if (data.role === "host") {
         createDataChannel();
@@ -102,6 +170,10 @@ connectWebSocket({
   },
 });
 
+if (urlCode) {
+  joinSession(urlCode);
+}
+
 function getInfo() {
   const file = fileInput.files[0];
 
@@ -123,9 +195,7 @@ fileInput.addEventListener("change", () => {
 
 sendFile.addEventListener("click", async () => {
   for (const file of saveFile) {
-    sendFileMeta(file);
-    const buffer = await file.arrayBuffer();
-    sendData(buffer);
+    await sendFileInChunks(file);
   }
 });
 
@@ -136,10 +206,11 @@ btn.addEventListener("click", () => {
 });
 
 joinBtn.addEventListener("click", () => {
-  const message = JSON.stringify({
-    type: "join-session",
-    code: inputCode.value,
-  });
+  joinSession(inputCode.value);
+});
+
+function joinSession(code) {
+  const message = JSON.stringify({ type: "join-session", code });
 
   send(message);
-});
+}

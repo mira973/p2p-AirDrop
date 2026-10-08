@@ -1,6 +1,13 @@
 const wsUri = "ws://localhost:8080";
 
 let websocket = null;
+const pendingMessages = [];
+
+function flushPendingMessages() {
+  while (pendingMessages.length > 0) {
+    websocket.send(pendingMessages.shift());
+  }
+}
 
 export function connectWebSocket({ onMessage }) {
   websocket = new WebSocket(wsUri);
@@ -25,9 +32,16 @@ export function connectWebSocket({ onMessage }) {
     console.log("Ошибка WebSocket:", error);
   });
 
+  websocket.addEventListener("open", flushPendingMessages);
+
   return websocket;
 }
 
 export function send(message) {
+  if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+    pendingMessages.push(message);
+    return;
+  }
+
   websocket.send(message);
 }

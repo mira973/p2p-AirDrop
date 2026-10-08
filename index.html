@@ -4,7 +4,8 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Document</title>
-        <script type="module" src="./js/index.js" defer></script>
+       <script src="https://unpkg.com/qrcode@1.5.0/build/qrcode.js"></script>
+<script type="module" src="./js/index.js"></script>
     </head>
     <body>
         <h1>P2PAirDrop</h1>
@@ -19,6 +20,12 @@
 
             <button type="button" id="SendFile">отправить файл</button>
             <button type="button" id="DownloadFile" hidden>Скачать файл</button>
+
+            <progress id="progress" value="0" max="100"></progress>
+            <span id="progress-text">0%</span>
         </div>
+
+
+       <canvas id="qr-code"></canvas>
     </body>
     </html>

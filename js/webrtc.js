@@ -18,6 +18,7 @@ function attachDataChannel(channel) {
 
       if (message.type === "file-meta") {
         incomingFile = { meta: message.fileMeta, chunks: [], size: 0 };
+        state.onProgress?.(0);
         console.log("Получены метаданные файла:", message.fileMeta);
       }
 
@@ -28,6 +29,11 @@ function attachDataChannel(channel) {
     incomingFile.size += event.data.byteLength;
 
     const meta = incomingFile.meta;
+    const totalBytes = meta?.size ?? 0;
+    const percent = totalBytes > 0 ? Math.min((incomingFile.size / totalBytes) * 100, 100) : 100;
+
+    state.onProgress?.(percent);
+
     const isComplete = meta ? incomingFile.size >= meta.size : true;
 
     if (!isComplete) return;
@@ -43,9 +49,10 @@ function attachDataChannel(channel) {
   };
 }
 
-export function createPeerConnection(onFileReceived) {
+export function createPeerConnection(onFileReceived, onProgress) {
   state.peerConnection = new RTCPeerConnection();
   state.onFileReceived = onFileReceived;
+  state.onProgress = onProgress;
 
   state.peerConnection.onicecandidate = (event) => {
     if (event.candidate) {
