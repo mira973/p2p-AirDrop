@@ -16,6 +16,17 @@ function findSessionBySocket(ws) {
   return null;
 }
 
+/** Клиент переводит ошибку по code, message — запасной текст. */
+function sendError(ws, code, message) {
+  ws.send(
+    JSON.stringify({
+      type: "error",
+      code,
+      message,
+    }),
+  );
+}
+
 wss.on("connection", (ws) => {
   console.log("Новое подключение");
 
@@ -46,23 +57,13 @@ wss.on("connection", (ws) => {
 
     if (data.type === "join-session") {
       if (data.code === "") {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: "Введите код сессии",
-          }),
-        );
+        sendError(ws, "empty-code", "Введите код сессии");
 
         return;
       }
 
       if (data.code.length !== 6) {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: "Код сессии не верный",
-          }),
-        );
+        sendError(ws, "invalid-code", "Код сессии не верный");
 
         return;
       }
@@ -70,23 +71,13 @@ wss.on("connection", (ws) => {
       const session = sessions.get(data.code);
 
       if (!session) {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: "Сессия не найдена",
-          }),
-        );
+        sendError(ws, "session-not-found", "Сессия не найдена");
 
         return;
       }
 
       if (session.peer !== null) {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: "Сессия уже занята",
-          }),
-        );
+        sendError(ws, "session-busy", "Сессия уже занята");
 
         return;
       }
@@ -105,22 +96,15 @@ wss.on("connection", (ws) => {
 
       session.host.send(hostResponse);
       session.peer.send(peerResponse);
-
-      console.log(hostResponse);
-      console.log(peerResponse);
     }
 
     if (data.type === "offer") {
       const session = findSessionBySocket(ws);
 
-      console.log("FOUND SESSION:", session);
-
       if (!session || session.peer === null) {
         console.log("Peer не найден");
         return;
       }
-
-      console.log("SENDING OFFER TO PEER");
 
       session.peer.send(
         JSON.stringify({
@@ -138,17 +122,12 @@ wss.on("connection", (ws) => {
       }
 
       if (ws === session.host) {
-        const target = session.peer;
-        target.send(JSON.stringify({ type: "ice-candidate", candidate: data.candidate }));
+        session.peer.send(JSON.stringify({ type: "ice-candidate", candidate: data.candidate }));
       }
 
       if (ws === session.peer) {
-        const target = session.host;
-        target.send(JSON.stringify({ type: "ice-candidate", candidate: data.candidate }));
+        session.host.send(JSON.stringify({ type: "ice-candidate", candidate: data.candidate }));
       }
-      // 1. если ws === session.host
-      // 2. если ws === session.peer
-      // 3. target.send(...)
     }
 
     if (data.type === "answer") {
@@ -159,13 +138,7 @@ wss.on("connection", (ws) => {
         return;
       }
 
-      console.log("SENDING ANSWER TO HOST");
-
       session.host.send(JSON.stringify({ type: "answer", answer: data.answer }));
-    }
-
-    if (data.type === "error") {
-      console.log("Ошибка:", data.message);
     }
   });
 

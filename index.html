@@ -1,31 +1,165 @@
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Document</title>
-       <script src="https://unpkg.com/qrcode@1.5.0/build/qrcode.js"></script>
-<script type="module" src="./js/index.js"></script>
-    </head>
-    <body>
-        <h1>P2PAirDrop</h1>
-        <div class="container">
-            <div id="number-display"></div>
-            <div id="info-display"></div>
-            <button  type="button" id="CreateSession">Создать сессию</button>
-            <input type="file" id="file-input">
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f4f1" />
+    <title>P2P AirDrop — передача файлов</title>
+    <link rel="preconnect" href="https://unpkg.com" />
+    <link rel="stylesheet" href="./styles/index.css" />
+    <script src="https://unpkg.com/qrcode@1.5.0/build/qrcode.js"></script>
+    <script type="module" src="./js/index.js"></script>
+  </head>
+  <body>
+    <fieldset class="lang-switch">
+      <legend class="visually-hidden" data-i18n="lang.label">Язык интерфейса</legend>
+      <button
+        type="button"
+        class="lang-switch__btn"
+        data-lang="ru"
+        aria-pressed="false"
+        data-i18n-aria-label="lang.ru"
+      >
+        RU
+      </button>
+      <button
+        type="button"
+        class="lang-switch__btn"
+        data-lang="en"
+        aria-pressed="false"
+        data-i18n-aria-label="lang.en"
+      >
+        EN
+      </button>
+    </fieldset>
 
-            <input type="number" id="inputCode">
-            <button type="button" id="JoinSession">Присоединиться к сессии</button>
+    <div class="app">
+      <main class="layout">
+        <!-- Создание сессии -->
+        <section class="card" id="createCard">
+          <div class="card__head">
+            <h2 class="card__title" data-i18n="create.title">Создать сессию</h2>
+            <p class="card__hint" data-i18n="create.hint">
+              Сгенерируйте код и QR — по ним подключатся другие устройства.
+            </p>
+          </div>
+          <div class="card__body">
+            <button
+              type="button"
+              id="CreateSession"
+              class="btn btn--primary btn--block"
+              data-i18n="create.button"
+            >
+              Создать сессию
+            </button>
 
-            <button type="button" id="SendFile">отправить файл</button>
-            <button type="button" id="DownloadFile" hidden>Скачать файл</button>
+            <div class="session">
+              <span class="session__label" data-i18n="create.codeLabel">Код сессии</span>
+              <div id="number-display" class="session__code" aria-live="polite"></div>
+              <div class="session__qr">
+                <canvas id="qr-code"></canvas>
+              </div>
+            </div>
+          </div>
+        </section>
 
-            <progress id="progress" value="0" max="100"></progress>
-            <span id="progress-text">0%</span>
-        </div>
+        <!-- Присоединение к сессии -->
+        <section class="card" id="joinCard">
+          <div class="card__head">
+            <h2 class="card__title" data-i18n="join.title">Присоединиться</h2>
+            <p class="card__hint" data-i18n="join.hint">Введите код сессии, который вам передали.</p>
+          </div>
+          <div class="card__body" id="joinForm">
+            <div class="field">
+              <label class="field__label" for="inputCode" data-i18n="join.codeLabel">Код сессии</label>
+              <input
+                id="inputCode"
+                class="input"
+                type="number"
+                inputmode="numeric"
+                autocomplete="off"
+                placeholder="0000"
+                data-i18n-placeholder="join.inputPlaceholder"
+              />
+            </div>
+            <button type="button" id="JoinSession" class="btn btn--ghost btn--block" data-i18n="join.button">
+              Присоединиться к сессии
+            </button>
+          </div>
+          <div class="card__body" id="joinStatus" hidden>
+            <span class="status-chip status-chip--connected">
+              <span class="status-chip__dot" aria-hidden="true"></span>
+              <span id="joinStatusText" data-i18n="status.connected">Подключено</span>
+            </span>
+          </div>
+        </section>
 
+        <!-- Передача файла -->
+        <section class="card card--wide">
+          <div class="card__head card__head--row">
+            <div class="card__head-text">
+              <h2 class="card__title" data-i18n="file.title">Передать файл</h2>
+              <p class="card__hint" data-i18n="file.hint">
+                Выберите файлы и отправьте их участнику сессии.
+              </p>
+            </div>
+            <span class="status-chip status-chip--waiting" id="connection-status">
+              <span class="status-chip__dot" aria-hidden="true"></span>
+              <span id="connection-status-text" data-i18n="status.waiting">Ожидание подключения</span>
+            </span>
+          </div>
+          <div class="card__body">
+            <label class="dropzone">
+              <span class="dropzone__icon" aria-hidden="true">
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M12 15V3" />
+                  <path d="m7 8 5-5 5 5" />
+                  <path d="M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
+                </svg>
+              </span>
+              <span class="dropzone__title" data-i18n="file.dropzoneTitle">Выбрать файлы</span>
+              <span class="dropzone__hint" data-i18n="file.dropzoneHint">
+                Нажмите, чтобы выбрать файлы на устройстве
+              </span>
+              <input id="file-input" class="visually-hidden" type="file" multiple />
+            </label>
 
-       <canvas id="qr-code"></canvas>
-    </body>
-    </html>
+            <ul id="file-list" class="file-list" hidden></ul>
+
+            <button
+              type="button"
+              id="SendFile"
+              class="btn btn--primary btn--block"
+              data-i18n="file.sendButton"
+              disabled
+            >
+              Отправить файлы
+            </button>
+
+            <div class="progress" id="progress-panel" hidden>
+              <div class="progress__head">
+                <span class="progress__label" id="progress-label" data-i18n="transfer.label">
+                  Прогресс передачи
+                </span>
+                <span id="progress-text" class="progress__value">0%</span>
+              </div>
+              <progress id="progress" class="progress__bar" value="0" max="100"></progress>
+              <p class="progress__meta" id="progress-meta"></p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toasts" class="toasts"></div>
+  </body>
+</html>

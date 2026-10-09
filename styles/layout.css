@@ -1,0 +1,75 @@
+/* ==========================================================================
+   layout.css — оболочка страницы и адаптивная сетка
+   Шапки и футера в разметке нет: интерфейс начинается сразу с карточек.
+   ========================================================================== */
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100dvh;
+  background:
+    radial-gradient(1100px 520px at 50% -14%, var(--page-glow), transparent 68%), var(--page);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  width: min(100% - 2rem, 62rem);
+  margin-inline: auto;
+  /* Верхний отступ оставляет место плавающему переключателю языка. */
+  padding-block: clamp(3.5rem, 9vw, 4.25rem) var(--space-8);
+}
+
+/* --- Сетка карточек --- */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: start;
+  gap: var(--space-5);
+}
+
+@media (min-width: 48rem) {
+  .layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .card--wide {
+    grid-column: 1 / -1;
+  }
+}
+
+/* --- Плавающий переключатель языка --- */
+.lang-switch {
+  position: fixed;
+  top: max(var(--space-4), env(safe-area-inset-top));
+  right: max(var(--space-4), env(safe-area-inset-right));
+  z-index: 30;
+}
+
+/* --- Область уведомлений --- */
+.toasts {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--space-5) + env(safe-area-inset-bottom));
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  width: min(100% - 2rem, 22rem);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.toasts > * {
+  pointer-events: auto;
+}

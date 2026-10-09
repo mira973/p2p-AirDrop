@@ -5,4 +5,7 @@ export const state = {
   dataChannel: null,
   onFileReceived: null,
   onProgress: null,
+  onChannelOpen: null,
+  onChannelClose: null,
+  pendingCandidates: [],
 };

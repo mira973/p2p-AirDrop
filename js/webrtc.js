@@ -1,128 +1,197 @@
 import { state } from "./state.js";
+import { BUFFER_LOW_WATER } from "./transfer.js";
 import { send } from "./websocket.js";
 
+let incoming = null;
+
 export async function addIceCandidate(candidate) {
-  await state.peerConnection.addIceCandidate(candidate);
-}
+  const connection = state.peerConnection;
 
-let incomingFile = { meta: null, chunks: [], size: 0 };
+  if (!connection) return;
 
-function attachDataChannel(channel) {
-  channel.onopen = () => {
-    console.log("Канал успешно открыт! Теперь можно отправлять данные.");
-  };
+  // Кандидаты, пришедшие до setRemoteDescription, копим и добавляем позже.
+  if (!connection.remoteDescription) {
+    state.pendingCandidates.push(candidate);
+    return;
+  }
 
-  channel.onmessage = (event) => {
-    if (typeof event.data === "string") {
-      const message = JSON.parse(event.data);
-
-      if (message.type === "file-meta") {
-        incomingFile = { meta: message.fileMeta, chunks: [], size: 0 };
-        state.onProgress?.(0);
-        console.log("Получены метаданные файла:", message.fileMeta);
-      }
-
-      return;
-    }
-
-    incomingFile.chunks.push(event.data);
-    incomingFile.size += event.data.byteLength;
-
-    const meta = incomingFile.meta;
-    const totalBytes = meta?.size ?? 0;
-    const percent = totalBytes > 0 ? Math.min((incomingFile.size / totalBytes) * 100, 100) : 100;
-
-    state.onProgress?.(percent);
-
-    const isComplete = meta ? incomingFile.size >= meta.size : true;
-
-    if (!isComplete) return;
-
-    const blob = new Blob(incomingFile.chunks, { type: meta?.type ?? "" });
-    const fileMeta = meta ?? { name: "file", size: blob.size, type: blob.type };
-
-    console.log("Получен файл:", fileMeta.name, blob.size, "байт");
-
-    state.onFileReceived?.(blob, fileMeta);
-
-    incomingFile = { meta: null, chunks: [], size: 0 };
-  };
-}
-
-export function createPeerConnection(onFileReceived, onProgress) {
-  state.peerConnection = new RTCPeerConnection();
-  state.onFileReceived = onFileReceived;
-  state.onProgress = onProgress;
-
-  state.peerConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      send(
-        JSON.stringify({
-          type: "ice-candidate",
-          candidate: event.candidate,
-        }),
-      );
-    } else {
-      console.log("ICE gathering finished");
-    }
-  };
-
-  state.peerConnection.onconnectionstatechange = () => {
-    console.log("Connection state:", state.peerConnection.connectionState);
-  };
-
-  state.peerConnection.ondatachannel = (event) => {
-    state.dataChannel = event.channel;
-
-    attachDataChannel(state.dataChannel);
-
-    console.log("Получен DataChannel:", state.dataChannel.label);
-  };
-}
-
-export function createDataChannel() {
-  state.dataChannel = state.peerConnection.createDataChannel("file");
-
-  attachDataChannel(state.dataChannel);
-}
-
-export async function createOffer() {
-  const offer = await state.peerConnection.createOffer();
-
-  await state.peerConnection.setLocalDescription(offer);
-
-  send(JSON.stringify({ type: "offer", offer: offer }));
-}
-
-export async function createAnswer(offer) {
-  await state.peerConnection.setRemoteDescription(offer);
-
-  const answer = await state.peerConnection.createAnswer();
-
-  await state.peerConnection.setLocalDescription(answer);
-
-  console.log("Answer:", answer);
-
-  send(JSON.stringify({ type: "answer", answer: answer }));
-}
-
-export async function setRemoteAnswer(answer) {
-  await state.peerConnection.setRemoteDescription(answer);
-}
-
-export function sendData(buffer) {
-  if (state.dataChannel.readyState === "open") {
-    state.dataChannel.send(buffer);
+  try {
+    await connection.addIceCandidate(candidate);
+  } catch (error) {
+    console.error("Не удалось добавить ICE-кандидата:", error);
   }
 }
 
-export function sendFileMeta(file) {
-  if (state.dataChannel?.readyState !== "open") return;
+async function flushPendingCandidates() {
+  const connection = state.peerConnection;
 
-  const fileMeta = {
-    name: file.name,
-    size: file.size,
-    type: file.type,
+  if (!connection || state.pendingCandidates.length === 0) return;
+
+  const candidates = state.pendingCandidates.splice(0, state.pendingCandidates.length);
+
+  for (const candidate of candidates) {
+    try {
+      await connection.addIceCandidate(candidate);
+    } catch (error) {
+      console.error("Не удалось добавить ICE-кандидата:", error);
+    }
+  }
+}
+
+function emitReceiveProgress() {
+  if (!incoming?.meta) return;
+
+  const totalBytes = incoming.meta.size ?? 0;
+  const percent = totalBytes > 0 ? Math.min((incoming.size / totalBytes) * 100, 100) : 100;
+
+  state.onProgress?.({
+    direction: "receive",
+    percent,
+    bytes: incoming.size,
+    totalBytes,
+    fileName: incoming.meta.name,
+    batchIndex: incoming.batch?.index ?? 1,
+    batchTotal: incoming.batch?.total ?? 1,
+  });
+}
+
+function finishIncomingFile() {
+  const { meta, batch, chunks, size } = incoming;
+  const fileMeta = meta ?? { name: "file", size, type: "" };
+  const blob = new Blob(chunks, { type: fileMeta.type ?? "" });
+
+  incoming = null;
+
+  state.onFileReceived?.(blob, fileMeta, batch ?? null);
+}
+
+function handleControlMessage(raw) {
+  let message = null;
+
+  try {
+    message = JSON.parse(raw);
+  } catch (error) {
+    console.error("Не удалось разобрать управляющее сообщение:", error);
+    return;
+  }
+
+  if (message?.type !== "file-meta") return;
+
+  const fileMeta = message.fileMeta ?? { name: "file", size: 0, type: "" };
+
+  incoming = {
+    meta: fileMeta,
+    batch: message.batch ?? null,
+    chunks: [],
+    size: 0,
   };
-  state.dataChannel.send(JSON.stringify({ type: "file-meta", fileMeta: fileMeta }));
+
+  emitReceiveProgress();
+
+  // Для файла нулевой длины чанков не будет — завершаем сразу.
+  if (fileMeta.size === 0) finishIncomingFile();
+}
+
+function handleBinaryMessage(data) {
+  if (!incoming?.meta) return;
+
+  incoming.chunks.push(data);
+  incoming.size += data.byteLength;
+
+  emitReceiveProgress();
+
+  if (incoming.size >= incoming.meta.size) finishIncomingFile();
+}
+
+function attachDataChannel(channel) {
+  channel.binaryType = "arraybuffer";
+
+  // Нижняя граница буфера: отправка возобновляется по событию bufferedamountlow.
+  if ("bufferedAmountLowThreshold" in channel) {
+    channel.bufferedAmountLowThreshold = BUFFER_LOW_WATER;
+  }
+
+  channel.onopen = () => state.onChannelOpen?.();
+  channel.onclose = () => state.onChannelClose?.();
+  channel.onerror = () => state.onChannelClose?.();
+
+  channel.onmessage = (event) => {
+    if (typeof event.data === "string") {
+      handleControlMessage(event.data);
+      return;
+    }
+
+    handleBinaryMessage(event.data);
+  };
+}
+
+export function createPeerConnection(handlers = {}) {
+  const connection = new RTCPeerConnection();
+
+  state.peerConnection = connection;
+  state.pendingCandidates = [];
+  state.onFileReceived = handlers.onFileReceived ?? null;
+  state.onProgress = handlers.onProgress ?? null;
+  state.onChannelOpen = handlers.onChannelOpen ?? null;
+  state.onChannelClose = handlers.onChannelClose ?? null;
+
+  connection.onicecandidate = (event) => {
+    if (!event.candidate) return;
+
+    send(
+      JSON.stringify({
+        type: "ice-candidate",
+        candidate: event.candidate,
+      }),
+    );
+  };
+
+  connection.onconnectionstatechange = () => {
+    if (connection.connectionState === "failed") state.onChannelClose?.();
+  };
+
+  connection.ondatachannel = (event) => {
+    state.dataChannel = event.channel;
+    attachDataChannel(state.dataChannel);
+  };
+
+  return connection;
+}
+
+export function createDataChannel() {
+  const channel = state.peerConnection.createDataChannel("file");
+
+  state.dataChannel = channel;
+  attachDataChannel(channel);
+
+  return channel;
+}
+
+export async function createOffer() {
+  const connection = state.peerConnection;
+  const offer = await connection.createOffer();
+
+  await connection.setLocalDescription(offer);
+
+  send(JSON.stringify({ type: "offer", offer }));
+}
+
+export async function createAnswer(offer) {
+  const connection = state.peerConnection;
+
+  await connection.setRemoteDescription(offer);
+  await flushPendingCandidates();
+
+  const answer = await connection.createAnswer();
+
+  await connection.setLocalDescription(answer);
+
+  send(JSON.stringify({ type: "answer", answer }));
+}
+
+export async function setRemoteAnswer(answer) {
+  const connection = state.peerConnection;
+
+  await connection.setRemoteDescription(answer);
+  await flushPendingCandidates();
 }

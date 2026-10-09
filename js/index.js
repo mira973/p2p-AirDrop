@@ -1,216 +1,509 @@
+import { getLang, initI18n, setLang, t } from "./i18n.js";
 import { state } from "./state.js";
+import { showToast } from "./toast.js";
+import { sendFile } from "./transfer.js";
 import {
   addIceCandidate,
   createAnswer,
   createDataChannel,
   createOffer,
   createPeerConnection,
-  sendData,
-  sendFileMeta,
   setRemoteAnswer,
 } from "./webrtc.js";
 import { connectWebSocket, send } from "./websocket.js";
 
-const btn = document.getElementById("CreateSession");
-const display = document.getElementById("number-display");
-const fileInput = document.getElementById("file-input");
-const infoDisplay = document.getElementById("info-display");
+/* --- Элементы интерфейса --- */
+const createCard = document.getElementById("createCard");
+const createBtn = document.getElementById("CreateSession");
+const codeDisplay = document.getElementById("number-display");
+const qrCanvas = document.getElementById("qr-code");
+
+const joinForm = document.getElementById("joinForm");
+const joinStatus = document.getElementById("joinStatus");
+const joinStatusText = document.getElementById("joinStatusText");
 const joinBtn = document.getElementById("JoinSession");
 const inputCode = document.getElementById("inputCode");
-const sendFile = document.getElementById("SendFile");
-const downloadFile = document.getElementById("DownloadFile");
+
+const connectionChip = document.getElementById("connection-status");
+const connectionChipText = document.getElementById("connection-status-text");
+
+const fileInput = document.getElementById("file-input");
+const fileList = document.getElementById("file-list");
+const sendFileBtn = document.getElementById("SendFile");
+
+const progressPanel = document.getElementById("progress-panel");
+const progressLabel = document.getElementById("progress-label");
 const progressBar = document.getElementById("progress");
 const progressText = document.getElementById("progress-text");
-const qrCode = document.getElementById("qr-code");
+const progressMeta = document.getElementById("progress-meta");
 
-const urlCode = new URLSearchParams(window.location.search).get("code");
+/* Коды ошибок сигнального сервера, для которых есть перевод. */
+const ERROR_KEYS = new Set(["empty-code", "invalid-code", "session-not-found", "session-busy"]);
 
-if (urlCode) {
-  inputCode.value = urlCode;
-  console.log("Код из ссылки:", urlCode);
+/* --- Состояние интерфейса --- */
+let itemId = 0;
+let items = []; // весь список: отправленные и полученные файлы
+let pending = []; // элементы, ожидающие отправки
+let sending = false;
+let lastProgress = null;
+let connectionStatus = "waiting";
+
+/* ==========================================================================
+   Форматирование и отрисовка
+   ========================================================================== */
+
+function formatBytes(value) {
+  const bytes = Number(value) || 0;
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = bytes;
+  let index = 0;
+
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+
+  const digits = index === 0 || size >= 100 ? 0 : size >= 10 ? 1 : 2;
+  const formatter = new Intl.NumberFormat(getLang() === "ru" ? "ru-RU" : "en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+
+  return `${formatter.format(size)} ${units[index]}`;
 }
 
-const saveFile = [];
-let receivedFile = null;
+function renderConnectionStatus() {
+  connectionChip.className = `status-chip status-chip--${connectionStatus}`;
+  connectionChipText.textContent = t(`status.${connectionStatus}`);
+}
 
-const CHUNK_SIZE = 64 * 1024; // 64 КБ
+function setConnectionStatus(status) {
+  connectionStatus = status;
+  renderConnectionStatus();
+}
 
-// Не даём переполниться очереди data channel на быстрых файлах.
-async function waitForBufferDrain() {
+/** Статус, когда передача не идёт. */
+function idleConnectionStatus() {
   const channel = state.dataChannel;
 
-  while (channel?.readyState === "open" && channel.bufferedAmount > CHUNK_SIZE * 8) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
+  if (!channel) return state.role ? "connecting" : "waiting";
+  if (channel.readyState === "open") return "connected";
+  if (channel.readyState === "connecting") return "connecting";
+
+  return "error";
+}
+
+function renderFileList() {
+  fileList.replaceChildren();
+  fileList.hidden = items.length === 0;
+
+  for (const item of items) {
+    const row = document.createElement("li");
+    row.className = `file-item file-item--${item.status}`;
+
+    const main = document.createElement("div");
+    main.className = "file-item__main";
+
+    const name = document.createElement("span");
+    name.className = "file-item__name";
+    name.textContent = item.name;
+
+    const meta = document.createElement("span");
+    meta.className = "file-item__meta";
+    meta.textContent = `${formatBytes(item.size)} · ${t(`file.status.${item.status}`)}`;
+
+    main.append(name, meta);
+    row.append(main);
+
+    if (item.blob) {
+      const download = document.createElement("button");
+      download.type = "button";
+      download.className = "btn btn--ghost btn--small";
+      download.dataset.download = String(item.id);
+      download.textContent = t("file.download");
+
+      row.append(download);
+    }
+
+    fileList.append(row);
   }
 }
 
-async function sendFileInChunks(file) {
-  sendFileMeta(file);
+function renderProgress() {
+  if (!lastProgress) return;
 
-  if (file.size === 0) {
-    sendData(new ArrayBuffer(0));
-    return;
-  }
+  const { direction, percent, bytes, totalBytes, batchIndex, batchTotal } = lastProgress;
+  const value = Math.max(0, Math.min(Math.round(percent), 100));
 
-  for (let start = 0; start < file.size; start += CHUNK_SIZE) {
-    const end = Math.min(start + CHUNK_SIZE, file.size);
-    const chunk = file.slice(start, end);
-    const buffer = await chunk.arrayBuffer();
-
-    sendData(buffer);
-
-    await waitForBufferDrain();
-  }
-}
-
-function showDownloadButton(blob, fileMeta) {
-  receivedFile = { blob, fileMeta };
-
-  downloadFile.hidden = false;
-  downloadFile.textContent = `Скачать ${fileMeta.name}`;
-}
-
-function updateProgress(percent) {
-  const value = Math.round(percent);
-
-  progressBar.value = value;
+  progressPanel.hidden = false;
+  progressLabel.textContent =
+    direction === "send" ? t("transfer.sending") : t("transfer.receiving");
   progressText.textContent = `${value}%`;
+  progressBar.value = value;
+
+  const parts = [];
+
+  if ((batchTotal ?? 1) > 1) {
+    parts.push(t("transfer.fileOfTotal", { index: batchIndex ?? 1, total: batchTotal }));
+  }
+
+  parts.push(t("transfer.bytes", { done: formatBytes(bytes), total: formatBytes(totalBytes) }));
+  progressMeta.textContent = parts.join(" · ");
 }
 
-function resetProgress() {
-  updateProgress(0);
+function showProgress(event) {
+  lastProgress = event;
+
+  if (connectionStatus !== "transferring") setConnectionStatus("transferring");
+
+  renderProgress();
 }
 
-downloadFile.addEventListener("click", () => {
-  if (!receivedFile) return;
+function hideProgress() {
+  lastProgress = null;
+  progressPanel.hidden = true;
+  progressBar.value = 0;
+  progressText.textContent = "0%";
+  progressMeta.textContent = "";
 
-  const objectURL = URL.createObjectURL(receivedFile.blob);
+  setConnectionStatus(idleConnectionStatus());
+}
+
+function renderJoinStatus() {
+  if (joinStatus.hidden) return;
+
+  const code = state.session?.code;
+
+  joinStatusText.textContent = code ? t("join.connected", { code }) : t("status.connected");
+}
+
+function updateSendButton() {
+  sendFileBtn.disabled = pending.length === 0 || sending;
+}
+
+/** Перерисовка всего, что зависит от языка или состояния. */
+function renderDynamic() {
+  renderConnectionStatus();
+  renderJoinStatus();
+  renderFileList();
+  renderProgress();
+}
+
+/* ==========================================================================
+   Отправка файлов
+   ========================================================================== */
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
 
-  link.href = objectURL;
-  link.download = receivedFile.fileMeta.name;
+  link.href = url;
+  link.download = name;
 
   document.body.append(link);
   link.click();
   link.remove();
 
-  URL.revokeObjectURL(objectURL);
-
-  resetProgress();
-});
-
-connectWebSocket({
-  onMessage: async (data) => {
-    if (data.type === "session-created") {
-      console.log("Сессия создана:", data.code);
-      display.textContent = data.code;
-
-      const joinUrl = new URL(window.location.origin);
-
-      joinUrl.searchParams.set("code", data.code);
-
-      state.session = { code: data.code, link: joinUrl.toString() };
-
-      console.log("Ссылка для подключения:", state.session.link);
-      window.QRCode.toCanvas(qrCode, joinUrl.toString(), (error) => {
-        if (error) {
-          console.error("Ошибка создания QR:", error);
-          return;
-        }
-
-        console.log("QR создан");
-      });
-    }
-
-    if (data.type === "peer-joined") {
-      state.role = data.role;
-
-      createPeerConnection((blob, fileMeta) => {
-        console.log("Получен Blob:", blob);
-        console.log("Метаданные файла:", fileMeta);
-
-        showDownloadButton(blob, fileMeta);
-      }, updateProgress);
-
-      if (data.role === "host") {
-        createDataChannel();
-        createOffer();
-      }
-
-      if (data.role === "peer") {
-        console.log("ждет оффер");
-      }
-
-      console.log(data.role);
-    }
-
-    if (data.type === "offer") {
-      createAnswer(data.offer);
-    }
-
-    if (data.type === "answer") {
-      await setRemoteAnswer(data.answer);
-    }
-
-    if (data.type === "error") {
-      console.log("Ошибка:", data.message);
-    }
-
-    if (data.type === "peer-disconnected") {
-      console.log("Peer отключился");
-    }
-
-    if (data.type === "session-closed") {
-      console.log("Host отключился. Сессия закрыта");
-    }
-
-    if (data.type === "ice-candidate") {
-      await addIceCandidate(data.candidate);
-    }
-  },
-});
-
-if (urlCode) {
-  joinSession(urlCode);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function getInfo() {
-  const file = fileInput.files[0];
+async function sendPendingFiles() {
+  if (sending || pending.length === 0) return;
 
-  if (!file) return;
+  const channel = state.dataChannel;
 
-  infoDisplay.textContent =
-    `Имя: ${file.name}, ` +
-    `Размер: ${(file.size / (1024 * 1024)).toFixed(2)} MB, ` +
-    `Тип: ${file.type}`;
-}
-
-fileInput.addEventListener("change", () => {
-  console.log("Выбран файл:", fileInput.files[0]);
-  const file = fileInput.files[0];
-  saveFile.push(file);
-  console.log("Размер файла в байтах:", file.size);
-  getInfo();
-});
-
-sendFile.addEventListener("click", async () => {
-  for (const file of saveFile) {
-    await sendFileInChunks(file);
+  if (channel?.readyState !== "open") {
+    showToast({ kind: "error", messageKey: "error.channel-closed" });
+    return;
   }
-});
 
-btn.addEventListener("click", () => {
-  const obj = JSON.stringify({ type: "create-session" });
+  const batch = pending.slice();
+  const batchBytes = batch.reduce((sum, item) => sum + item.size, 0);
 
-  send(obj);
-});
+  sending = true;
+  updateSendButton();
 
-joinBtn.addEventListener("click", () => {
-  joinSession(inputCode.value);
-});
+  try {
+    for (let index = 0; index < batch.length; index += 1) {
+      const item = batch[index];
 
-function joinSession(code) {
-  const message = JSON.stringify({ type: "join-session", code });
+      item.status = "sending";
+      renderFileList();
 
-  send(message);
+      await sendFile(
+        channel,
+        item.file,
+        { index: index + 1, total: batch.length, batchBytes },
+        (sentBytes) => {
+          showProgress({
+            direction: "send",
+            percent: item.size > 0 ? (sentBytes / item.size) * 100 : 100,
+            bytes: sentBytes,
+            totalBytes: item.size,
+            fileName: item.name,
+            batchIndex: index + 1,
+            batchTotal: batch.length,
+          });
+        },
+      );
+
+      item.status = "sent";
+      renderFileList();
+    }
+  } catch (error) {
+    console.error("Ошибка отправки файла:", error);
+
+    for (const item of batch) {
+      if (item.status === "sending" || item.status === "waiting") item.status = "error";
+    }
+
+    showToast({
+      kind: "error",
+      messageKey:
+        error?.message === "channel-closed" ? "error.channel-closed" : "error.send-failed",
+    });
+  } finally {
+    pending = pending.filter((item) => !batch.includes(item));
+    sending = false;
+
+    hideProgress();
+    renderFileList();
+    updateSendButton();
+  }
 }
+
+/* ==========================================================================
+   Соединение
+   ========================================================================== */
+
+function markJoined() {
+  createCard.hidden = true;
+  joinForm.hidden = true;
+  joinStatus.hidden = false;
+
+  renderJoinStatus();
+}
+
+function handleChannelOpen() {
+  setConnectionStatus("connected");
+
+  if (state.role === "peer") {
+    markJoined();
+    showToast({ kind: "success", messageKey: "toast.connectedPeer" });
+  } else {
+    showToast({ kind: "success", messageKey: "toast.peerJoined" });
+  }
+
+  updateSendButton();
+}
+
+function handleChannelClose() {
+  setConnectionStatus("error");
+  showToast({ kind: "error", messageKey: "error.channel-closed" });
+}
+
+function handleFileReceived(blob, meta, batch) {
+  itemId += 1;
+
+  items = [
+    ...items,
+    {
+      id: itemId,
+      name: meta?.name ?? "file",
+      size: meta?.size ?? blob.size,
+      file: null,
+      blob,
+      direction: "in",
+      status: "received",
+      batch,
+    },
+  ];
+
+  hideProgress();
+  renderFileList();
+}
+
+function handleSessionCreated(data) {
+  codeDisplay.textContent = data.code;
+
+  const joinUrl = new URL(window.location.href);
+  joinUrl.searchParams.set("code", data.code);
+
+  state.session = { code: data.code, link: joinUrl.toString() };
+
+  if (typeof window.QRCode?.toCanvas !== "function") {
+    console.error("Библиотека QR-кода не загрузилась");
+    return;
+  }
+
+  window.QRCode.toCanvas(qrCanvas, joinUrl.toString(), (error) => {
+    if (error) console.error("Не удалось построить QR-код:", error);
+  });
+}
+
+function handlePeerJoined(data) {
+  state.role = data.role;
+
+  createPeerConnection({
+    onFileReceived: handleFileReceived,
+    onProgress: showProgress,
+    onChannelOpen: handleChannelOpen,
+    onChannelClose: handleChannelClose,
+  });
+
+  if (data.role === "host") {
+    createDataChannel();
+    createOffer().catch((error) => console.error("Не удалось создать offer:", error));
+    return;
+  }
+
+  setConnectionStatus("connecting");
+}
+
+function handleServerError(data) {
+  const known = typeof data.code === "string" && ERROR_KEYS.has(data.code);
+
+  if (!state.dataChannel) setConnectionStatus("waiting");
+
+  showToast({
+    kind: "error",
+    messageKey: known ? `error.${data.code}` : null,
+    message: known ? null : data.message,
+  });
+}
+
+function joinSession(rawCode) {
+  const code = String(rawCode ?? "").trim();
+
+  state.session = { code };
+  setConnectionStatus("connecting");
+
+  send(JSON.stringify({ type: "join-session", code }));
+}
+
+/* ==========================================================================
+   События интерфейса
+   ========================================================================== */
+
+function bindEvents() {
+  createBtn.addEventListener("click", () => {
+    send(JSON.stringify({ type: "create-session" }));
+  });
+
+  joinBtn.addEventListener("click", () => joinSession(inputCode.value));
+
+  inputCode.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+
+    event.preventDefault();
+    joinSession(inputCode.value);
+  });
+
+  fileInput.addEventListener("change", () => {
+    for (const file of Array.from(fileInput.files ?? [])) {
+      itemId += 1;
+
+      const item = {
+        id: itemId,
+        name: file.name,
+        size: file.size,
+        file,
+        blob: null,
+        direction: "out",
+        status: "waiting",
+      };
+
+      items = [...items, item];
+      pending = [...pending, item];
+    }
+
+    // Сбрасываем поле, чтобы тот же файл можно было выбрать повторно.
+    fileInput.value = "";
+
+    renderFileList();
+    updateSendButton();
+  });
+
+  sendFileBtn.addEventListener("click", () => {
+    sendPendingFiles();
+  });
+
+  fileList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-download]");
+
+    if (!button) return;
+
+    const item = items.find((entry) => entry.id === Number(button.dataset.download));
+
+    if (item?.blob) downloadBlob(item.blob, item.name);
+  });
+
+  for (const button of document.querySelectorAll(".lang-switch__btn")) {
+    button.addEventListener("click", () => setLang(button.dataset.lang));
+  }
+
+  document.addEventListener("langchange", renderDynamic);
+}
+
+function connectSignaling() {
+  connectWebSocket({
+    onMessage: async (data) => {
+      try {
+        switch (data.type) {
+          case "session-created":
+            handleSessionCreated(data);
+            break;
+
+          case "peer-joined":
+            handlePeerJoined(data);
+            break;
+
+          case "offer":
+            await createAnswer(data.offer);
+            break;
+
+          case "answer":
+            await setRemoteAnswer(data.answer);
+            break;
+
+          case "ice-candidate":
+            await addIceCandidate(data.candidate);
+            break;
+
+          case "error":
+            handleServerError(data);
+            break;
+
+          case "peer-disconnected":
+            setConnectionStatus("waiting");
+            showToast({ kind: "info", messageKey: "toast.peerLeft" });
+            break;
+
+          case "session-closed":
+            setConnectionStatus("error");
+            showToast({ kind: "info", messageKey: "toast.sessionClosed" });
+            break;
+
+          default:
+            break;
+        }
+      } catch (error) {
+        console.error("Ошибка обработки сообщения сигнализации:", error);
+      }
+    },
+  });
+}
+
+/* ==========================================================================
+   Запуск
+   ========================================================================== */
+
+const urlCode = new URLSearchParams(window.location.search).get("code");
+
+if (urlCode) inputCode.value = urlCode;
+
+bindEvents();
+initI18n();
+connectSignaling();
+
+if (urlCode) joinSession(urlCode);

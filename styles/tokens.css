@@ -1,0 +1,105 @@
+/* ==========================================================================
+   tokens.css — сброс стилей и дизайн-токены
+   Единственное место, где задаются цвета, размеры и тени.
+   Палитра проекта: #5D5C61, #379683, #7395AE, #557A95, #B1A296.
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+}
+
+:root {
+  color-scheme: light;
+
+  /* --- Типографика --- */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+
+  /* --- Отступы --- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* --- Скругления --- */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius-pill: 999px;
+
+  /* Высота интерактивных элементов — удобный тап на телефоне. */
+  --control-h: 2.875rem;
+
+  /* --- Длительности переходов --- */
+  --dur-fast: 0.15s;
+  --dur-slow: 0.2s;
+
+  /* --- Палитра проекта (базовые цвета) --- */
+  --palette-ink: #5d5c61;
+  --palette-green: #379683;
+  --palette-blue: #7395ae;
+  --palette-steel: #557a95;
+  --palette-sand: #b1a296;
+
+  /* --- Чернила: основные тексты и важные элементы --- */
+  --text: #4a494e; /* производный от #5D5C61 */
+  --text-muted: #7b7a80;
+  --text-soft: #96949a;
+
+  /* --- Нейтральные поверхности и границы (оттенки #B1A296) --- */
+  --page: #f6f4f1;
+  --page-glow: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #efebe6;
+  --surface-3: #e7e1d9;
+  --border: #ded8d1;
+  --border-strong: #c6beb4;
+
+  /* --- Акцент: кнопки, состояния, фокус --- */
+  --accent: #557a95;
+  --accent-hover: #46677f;
+  --accent-2: #7395ae;
+  --accent-soft: #e7edf2;
+  --accent-on: #ffffff;
+
+  /* --- Успех и прогресс --- */
+  --success: #2c7a6b; /* затемнённый #379683 ради контраста текста */
+  --success-soft: #e3f1ee;
+  --progress-from: #379683;
+  --progress-to: #557a95;
+
+  /* --- Ошибка --- */
+  --danger: #a8524a;
+  --danger-soft: #f4e7e5;
+
+  --focus: #7395ae;
+
+  --shadow-sm: 0 1px 2px rgba(93, 92, 97, 0.08);
+  --shadow-md: 0 18px 40px -24px rgba(93, 92, 97, 0.35);
+  --shadow-toast: 0 18px 38px -20px rgba(93, 92, 97, 0.45);
+}
+
+/* Уважаем настройку «уменьшить движение»: обнуляем длительности переходов. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0.01ms;
+    --dur-slow: 0.01ms;
+  }
+}
